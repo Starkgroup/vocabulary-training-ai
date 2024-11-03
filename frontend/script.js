@@ -108,7 +108,6 @@ let userAnswerElement;
 
 // Text content for UI elements
 let uiText = {
-    welcomeMessage: 'Your turn',
     loadingTask: 'Loading ...',
     yourAnswerPlaceholder: 'Your answer',
     reviewAnswerButton: 'Is this correct?',
@@ -118,7 +117,7 @@ let uiText = {
     restartButtonAlt: 'Retrain all vocabulary',
     resetAppButtonAlt: 'Delete all settings and vocabulary',
     resetAppConfirmation: 'Are you sure you want to reset all app data? This will delete your vocabulary and progress too.',
-    addVocabPrompt: 'Please enter the new vocabulary or sentence (sentences always with punctuation, like . / ! / ?):',
+    addVocabPrompt: 'Please enter the new vocabulary or sentences. A sentences always with punctuation in the end! One entry per line...',
     addVocabSuccess: 'Vocabulary added!',
     enterAllVocabPrompt: 'Please enter all three vocabulary items to start.',
     learnedAllVocab: 'You have successfully learned all vocabularies, great job!',
@@ -138,9 +137,6 @@ let uiText = {
         vocabularyNote: 'Please note: This is an experimental tool. There is no login - all information will be stored on this device. By deleting the cache, your progress will also be lost.'
     }
 };
-
-// Boolean to switch between using own API key and backend
-let ownKey = true; // Default to true
 
 // Function to initialize the ownKey based on user preference
 function initializeKeyPreference() {
@@ -163,42 +159,15 @@ function initializeKeyPreference() {
 }
 
 // Function to handle the toggle switch
-async function handleKeyToggle(event) {
+
+
+function handleKeyToggle(event) {
     ownKey = event.target.checked;
     localStorage.setItem('ownKey', ownKey.toString());
 
     toggleApiKeySections(ownKey);
 
-    if (!ownKey) {
-        // User opted to use the website's API key
-        const existingToken = localStorage.getItem('bearerToken');
-        const tokenExpiration = localStorage.getItem('tokenExpiration');
-
-        if (existingToken && tokenExpiration) {
-            const now = Date.now();
-            if (now < parseInt(tokenExpiration)) {
-                // Token is still valid
-                return;
-            }
-        }
-
-        // Request a new token
-        try {
-            const { token, expiresAt } = await requestBearerToken();
-            localStorage.setItem('bearerToken', token);
-            localStorage.setItem('tokenExpiration', expiresAt.toString());
-        } catch (error) {
-            console.error('Error obtaining bearer token:', error);
-            alert('Failed to obtain bearer token. Please try again later.');
-            // Revert the toggle
-            ownKey = true;
-            event.target.checked = true;
-            localStorage.setItem('ownKey', 'true');
-            toggleApiKeySections(true);
-        }
-    } else {
-        // User opted to use their own API key
-        // Remove the bearer token from storage
+    if (ownKey) {
         localStorage.removeItem('bearerToken');
         localStorage.removeItem('tokenExpiration');
     }
@@ -241,49 +210,32 @@ async function requestBearerToken() {
 
 // Function to translate UI text
 async function translateUIText(targetLanguage) {
-    const apiKey = await getApiKey();
-    if (!apiKey) {
-        console.error('API Key is missing or invalid.');
-        return;
-    }
-
     const textToTranslate = JSON.stringify(uiText);
 
     const systemPrompt = 'You are a helpful assistant that translates JSON objects containing UI text into the target language while preserving the JSON structure. Use informal language (for example in German: "Du")';
-    const userPrompt = `Translate the following JSON object into ${targetLanguage}. Preserve the JSON structure and keys. Do not translate any keys, only the values.
+    const userPrompt = `Translate the following JSON object into ${targetLanguage}. Preserve the JSON structure and keys. Do not translate any keys, only the values. Only return the JSON, no comments or remarks.
 
 JSON to translate:
 ${textToTranslate}`;
 
     try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt }
-                ]
-            })
-        });
+        // Use the existing callChatGPTAPI function to get the translated text
+        const responseContent = await callChatGPTAPI(systemPrompt, userPrompt);
 
-        if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+        if (!responseContent) {
+            throw new Error('Received empty response from ChatGPT API.');
         }
 
-        const data = await response.json();
-        let translatedText = data.choices[0].message.content;
+        // Parse the translated JSON
+        const translatedText = JSON.parse(responseContent);
 
-        // Clean up the response to get valid JSON
-        translatedText = translatedText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+        // Update the uiText object with the translated text
+        uiText = translatedText;
 
-        uiText = JSON.parse(translatedText);
         // Store the translated UI text in localStorage with the language as a key
         localStorage.setItem(`uiText_${targetLanguage}`, JSON.stringify(uiText));
+
+        console.log(`UI text successfully translated to ${targetLanguage}.`);
     } catch (error) {
         console.error('Error translating UI text:', error);
     }
@@ -300,7 +252,7 @@ function updateUIElements() {
     userAnswerElement.placeholder = uiText.yourAnswerPlaceholder;
     submitButton.textContent = uiText.reviewAnswerButton;
     nextButton.textContent = uiText.nextTaskButton;
-    document.getElementById('addVocab').title = uiText.addVocabAlt;
+    document.getElementById('addVocabAlt').title = uiText.addVocabAlt;
     document.getElementById('skipVocab').title = uiText.skipVocabAlt;
     restartButton.title = uiText.restartButtonAlt;
     resetAppButton.title = uiText.resetAppButtonAlt;
@@ -338,7 +290,7 @@ function updateUIElements() {
 
     // Add Vocabulary Modal
     const modalAddVocab = document.getElementById('modalAddVocab');
-    modalAddVocab.querySelector('h2').textContent = 'Add Vocabulary';
+    modalAddVocab.querySelector('h2').textContent = uiText.addVocabAlt;
     modalAddVocab.querySelector('p').textContent = uiText.addVocabPrompt;
     document.getElementById('addVocabInput').placeholder = uiText.modal.addVocabPlaceholder;
     document.getElementById('saveAddVocab').textContent = uiText.modal.saveButton;
@@ -364,7 +316,7 @@ async function validateApiKey(apiKey) {
         });
 
         if (response.ok) {
-            return true; 
+            return true;
         } else {
             const errorData = await response.json();
             console.error('API Key validation failed:', errorData);
@@ -377,181 +329,276 @@ async function validateApiKey(apiKey) {
 }
 
 // Function to show the initial API key modal
-function infoWindowFirst() {
-    const modalKey = document.getElementById('modalKey');
-    modalKey.style.display = 'block';
-    const saveApiKeyButton = modalKey.querySelector('#saveApiKey');
-
-    // Remove existing Event Listeners to prevent duplicates
-    saveApiKeyButton.replaceWith(saveApiKeyButton.cloneNode(true));
-    document.getElementById('saveApiKey').addEventListener('click', async () => {
-        const key = document.getElementById('apiKeyInput').value.trim();
-        if (key) {
-            // Disable the button and show loading text
-            saveApiKeyButton.disabled = true;
-            saveApiKeyButton.textContent = 'Validating...';
-
-            const isValid = await validateApiKey(key);
-            if (isValid) {
-                try {
-                    const encryptedKey = await encryptData(key, PASSPHRASE);
-                    localStorage.setItem('apiKey', encryptedKey);
-                    // Hide the modal
-                    modalKey.style.display = 'none';
-                    // Reset button text and state
-                    saveApiKeyButton.textContent = 'Save';
-                    saveApiKeyButton.disabled = false;
-                    // Proceed to the next setup step
-                    requestTrainingLanguage();
-                } catch (encryptionError) {
-                    console.error('Encryption failed:', encryptionError);
-                    alert('An error occurred while encrypting the API key. Please try again.');
-                    // Reset button text and state
-                    saveApiKeyButton.textContent = 'Save';
-                    saveApiKeyButton.disabled = false;
-                }
-            } else {
-                alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation of what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
-                // Reset button text and state
-                saveApiKeyButton.textContent = 'Save';
-                saveApiKeyButton.disabled = false;
-            }
-        } else {
-            alert('Please enter an API key.');
-        }
-    });
-}
-
-// Function to show the "About" modal later if needed
-function infoWindowLater() {
+function infoWindow() {
     const modalInfo = document.getElementById('modalInfo');
     modalInfo.style.display = 'block';
-    const infoRead = modalInfo.querySelector('#infoRead');
+    const modalInfoButton = modalInfo.querySelector('#infoRead');
 
     // Remove existing Event Listeners to prevent duplicates
-    infoRead.replaceWith(infoRead.cloneNode(true));
-    document.getElementById('infoRead').addEventListener('click', () => {
+    modalInfoButton.replaceWith(modalInfoButton.cloneNode(true));
+    document.getElementById('infoRead').addEventListener('click', async () => {
         modalInfo.style.display = 'none';
     });
 }
 
 // Function to show the API key modal
-async function requestApiKey() {
-    const modalKey = document.getElementById('modalKey');
-    modalKey.style.display = 'block';
-    const saveApiKeyButton = modalKey.querySelector('#saveApiKey');
+function requestApiKey() {
+    return new Promise((resolve, reject) => {
+        const modalKey = document.getElementById('modalKey');
+        modalKey.style.display = 'block';
+        const saveApiKeyButton = modalKey.querySelector('#saveApiKey');
 
-    // Remove existing Event Listeners to prevent duplicates
-    saveApiKeyButton.replaceWith(saveApiKeyButton.cloneNode(true));
-    document.getElementById('saveApiKey').addEventListener('click', async () => {
-        const key = document.getElementById('apiKeyInput').value.trim();
-        if (key) {
-            // Disable the button and show loading text
-            saveApiKeyButton.disabled = true;
-            saveApiKeyButton.textContent = 'Validating...';
+        // Remove existing Event Listeners to prevent duplicates
+        saveApiKeyButton.replaceWith(saveApiKeyButton.cloneNode(true));
+        const newSaveApiKeyButton = modalKey.querySelector('#saveApiKey');
 
-            const isValid = await validateApiKey(key);
-            if (isValid) {
-                try {
-                    const encryptedKey = await encryptData(key, PASSPHRASE);
-                    localStorage.setItem('apiKey', encryptedKey);
-                    // Hide the modal
-                    modalKey.style.display = 'none';
+        newSaveApiKeyButton.addEventListener('click', async () => {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if (key) {
+                // Disable the button and show loading text
+                newSaveApiKeyButton.disabled = true;
+                newSaveApiKeyButton.textContent = 'Validating...';
+
+                const isValid = await validateApiKey(key);
+                if (isValid) {
+                    try {
+                        const encryptedKey = await encryptData(key, PASSPHRASE);
+                        localStorage.setItem('apiKey', encryptedKey);
+                        // Hide the modal
+                        modalKey.style.display = 'none';
+                        // Reset button text and state
+                        newSaveApiKeyButton.textContent = 'Save';
+                        newSaveApiKeyButton.disabled = false;
+                        resolve();
+                    } catch (encryptionError) {
+                        console.error('Encryption failed:', encryptionError);
+                        alert('An error occurred while encrypting the API key. Please try again.');
+                        // Reset button text and state
+                        newSaveApiKeyButton.textContent = 'Save';
+                        newSaveApiKeyButton.disabled = false;
+                        reject(encryptionError);
+                    }
+                } else {
+                    alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation of what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
                     // Reset button text and state
-                    saveApiKeyButton.textContent = 'Save';
-                    saveApiKeyButton.disabled = false;
-                    // Proceed to the next setup step
-                    requestTrainingLanguage();
-                } catch (encryptionError) {
-                    console.error('Encryption failed:', encryptionError);
-                    alert('An error occurred while encrypting the API key. Please try again.');
-                    // Reset button text and state
-                    saveApiKeyButton.textContent = 'Save';
-                    saveApiKeyButton.disabled = false;
+                    newSaveApiKeyButton.textContent = 'Save';
+                    newSaveApiKeyButton.disabled = false;
+                    reject(new Error('Invalid API Key'));
                 }
             } else {
-                alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation of what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
-                // Reset button text and state
-                saveApiKeyButton.textContent = 'Save';
-                saveApiKeyButton.disabled = false;
+                alert('Please enter an API key.');
             }
-        } else {
-            alert('Please enter an API key.');
-        }
+        });
     });
 }
+
 
 // Function to show the user language modal
 function requestUserLanguage() {
-    const modalUserLang = document.getElementById('modalUserLang');
-    modalUserLang.style.display = 'block';
-    const saveUserLangButton = modalUserLang.querySelector('#saveUserLanguage');
+    return new Promise((resolve, reject) => {
+        const modalUserLang = document.getElementById('modalUserLang');
+        modalUserLang.style.display = 'block';
+        const saveUserLangButton = modalUserLang.querySelector('#saveUserLanguage');
 
-    // Remove existing Event Listeners to prevent duplicates
-    saveUserLangButton.replaceWith(saveUserLangButton.cloneNode(true));
-    document.getElementById('saveUserLanguage').addEventListener('click', () => {
-        const language = document.getElementById('userLanguageInput').value.trim();
-        if (language) {
-            localStorage.setItem('userLanguage', language);
+        // Remove existing Event Listeners to prevent duplicates
+        saveUserLangButton.replaceWith(saveUserLangButton.cloneNode(true));
+        const newSaveUserLangButton = modalUserLang.querySelector('#saveUserLanguage');
 
-            modalUserLang.style.display = 'none';
-
-            initializeApp();
-        }
+        newSaveUserLangButton.addEventListener('click', () => {
+            const language = document.getElementById('userLanguageInput').value.trim();
+            if (language) {
+                localStorage.setItem('userLanguage', language);
+                modalUserLang.style.display = 'none';
+                resolve();
+            } else {
+                alert('Please enter your native language.');
+                reject(new Error('No language entered'));
+            }
+        });
     });
 }
 
-// Function to show the training language modal
 function requestTrainingLanguage() {
-    const modalTrainingLang = document.getElementById('modalTrainingLang');
-    modalTrainingLang.style.display = 'block';
-    const saveTrainingLangButton = modalTrainingLang.querySelector('#saveTrainingLanguage');
+    return new Promise((resolve, reject) => {
+        const modalTrainingLang = document.getElementById('modalTrainingLang');
+        modalTrainingLang.style.display = 'block';
+        const saveTrainingLangButton = modalTrainingLang.querySelector('#saveTrainingLanguage');
 
-    // Remove existing Event Listeners to prevent duplicates
-    saveTrainingLangButton.replaceWith(saveTrainingLangButton.cloneNode(true));
-    document.getElementById('saveTrainingLanguage').addEventListener('click', () => {
-        const language = document.getElementById('trainingLanguageInput').value.trim();
-        if (language) {
-            localStorage.setItem('trainingLanguage', language);
-            modalTrainingLang.style.display = 'none';
-            requestUserLanguage();
-        }
+        // Remove existing Event Listeners to prevent duplicates
+        saveTrainingLangButton.replaceWith(saveTrainingLangButton.cloneNode(true));
+        const newSaveTrainingLangButton = modalTrainingLang.querySelector('#saveTrainingLanguage');
+
+        newSaveTrainingLangButton.addEventListener('click', () => {
+            const language = document.getElementById('trainingLanguageInput').value.trim();
+            if (language) {
+                localStorage.setItem('trainingLanguage', language);
+                modalTrainingLang.style.display = 'none';
+                resolve();
+            } else {
+                alert('Please enter the language you want to learn.');
+                reject(new Error('No training language entered'));
+            }
+        });
     });
 }
 
-// Check if all necessary data is available
-const storedApiKey = localStorage.getItem('apiKey');
-const storedUserLanguage = localStorage.getItem('userLanguage');
-const storedTrainingLanguage = localStorage.getItem('trainingLanguage');
+function promptInitialVocabularies() {
+    return new Promise((resolve, reject) => {
+        const modalFirstVocab = document.getElementById('modalFirstVocab');
+        modalFirstVocab.style.display = 'block';
+        const saveFirstVocabButton = modalFirstVocab.querySelector('#saveFirstVocab');
 
-if (!storedApiKey && ownKey) {
-    infoWindowFirst();
-} else if (!storedTrainingLanguage) {
-    requestTrainingLanguage();
-} else if (!storedUserLanguage) {
-    requestUserLanguage();
-} else {
-    initializeApp();
+        // Remove any previous event listeners to prevent duplicates
+        saveFirstVocabButton.replaceWith(saveFirstVocabButton.cloneNode(true));
+        const newSaveFirstVocabButton = modalFirstVocab.querySelector('#saveFirstVocab');
+
+        newSaveFirstVocabButton.addEventListener('click', () => {
+            const vocab1 = document.getElementById('firstVocabInput1').value.trim();
+            const vocab2 = document.getElementById('firstVocabInput2').value.trim();
+            const vocab3 = document.getElementById('firstVocabInput3').value.trim();
+            if (vocab1 && vocab2 && vocab3) {
+                vocabList.push({ word: vocab1, score: 5 });
+                vocabList.push({ word: vocab2, score: 5 });
+                vocabList.push({ word: vocab3, score: 5 });
+                localStorage.setItem('vocabList', JSON.stringify(vocabList));
+                modalFirstVocab.style.display = 'none';
+                resolve();
+            } else {
+                alert(uiText.enterAllVocabPrompt);
+                reject(new Error('Incomplete vocab entries'));
+            }
+        });
+    });
 }
+
+function obtainBearerToken() {
+    return new Promise((resolve, reject) => {
+        const modalKey = document.getElementById('modalKey');
+        modalKey.style.display = 'block';
+        const requestBackendTokenButton = document.getElementById('requestBackendToken');
+
+        // Remove existing Event Listeners to prevent duplicates
+        requestBackendTokenButton.replaceWith(requestBackendTokenButton.cloneNode(true));
+        const newRequestBackendTokenButton = modalKey.querySelector('#requestBackendToken');
+
+        newRequestBackendTokenButton.addEventListener('click', async () => {
+            newRequestBackendTokenButton.disabled = true;
+            newRequestBackendTokenButton.textContent = 'Obtaining Token...';
+
+            try {
+                const { token, expiresAt } = await requestBearerToken();
+                localStorage.setItem('bearerToken', token);
+                localStorage.setItem('tokenExpiration', expiresAt.toString());
+
+                // Hide the modal after obtaining the token
+                modalKey.style.display = 'none';
+                resolve();
+            } catch (error) {
+                console.error('Error obtaining bearer token:', error);
+                alert('Failed to obtain bearer token. Please try again later.');
+                reject(error);
+            } finally {
+                newRequestBackendTokenButton.disabled = false;
+                newRequestBackendTokenButton.textContent = 'Obtain Token';
+            }
+        });
+    });
+}
+
+
+
+let ownKey = null;
+
+const userLanguage = localStorage.getItem('userLanguage');
+const trainingLanguage = localStorage.getItem('trainingLanguage');
+
+const storedApiKey = localStorage.getItem('apiKey');
+const storedBearerToken = localStorage.getItem('bearerToken');
+
+initializeApp();
 
 async function initializeApp() {
-
-    // Retrieve languages from localStorage
-    const userLanguage = localStorage.getItem('userLanguage');
-    const trainingLanguage = localStorage.getItem('trainingLanguage');
-
     const lastVersion = localStorage.getItem('version');
     if (version !== lastVersion) {
         localStorage.setItem('version', version);
-        localStorage.removeItem(`uiText_${userLanguage}`);
+        try {
+            localStorage.removeItem(`uiText_${userLanguage}`);
+        } catch {
+
+        } 
+    }
+    document.getElementById('version').innerText = version;
+
+    ownKey = localStorage.getItem('ownKey') === 'true'; // Ensure it's a boolean
+    if (ownKey === null) {
+        console.log('ownKey not set in localStorage');
+        ownKey = true; // Default to using own API key
+        localStorage.setItem('ownKey', ownKey.toString());
+    }
+
+    if (ownKey) {
+        const storedApiKey = localStorage.getItem('apiKey');
+        if (!storedApiKey) {
+            try {
+                await requestApiKey();
+            } catch (error) {
+                console.error('API Key setup failed:', error);
+                return;
+            }
+        }
+    } else {
+        const storedBearerToken = localStorage.getItem('bearerToken');
+        const tokenExpiration = localStorage.getItem('tokenExpiration');
+        if (!storedBearerToken || !tokenExpiration || Date.now() > parseInt(tokenExpiration)) {
+            // Token is missing or expired, prompt user to obtain a new token
+            try {
+                await obtainBearerToken();
+            } catch (error) {
+                console.error('Bearer Token setup failed:', error);
+                return;
+            }
+        }
+    }
+
+    const trainingLanguage = localStorage.getItem('trainingLanguage');
+    if (!trainingLanguage) {
+        try {
+            await requestTrainingLanguage();
+        } catch (error) {
+            console.error('Training Language setup failed:', error);
+            return;
+        }
+    }
+
+    const userLanguage = localStorage.getItem('userLanguage');
+    if (!userLanguage) {
+        try {
+            await requestUserLanguage();
+        } catch (error) {
+            console.error('User Language setup failed:', error);
+            return;
+        }
     }
 
     const storedUIText = localStorage.getItem(`uiText_${userLanguage}`);
     if (storedUIText) {
         uiText = JSON.parse(storedUIText);
     } else {
-        if (userLanguage.toLowerCase() !== 'english') {
+        if (userLanguage && userLanguage.toLowerCase() !== 'english') {
             await translateUIText(userLanguage);
+        } else {
+            console.log('English - no translation necessary');
+        }
+    }
+
+    loadVocabList();
+
+    if (!Array.isArray(vocabList) || vocabList.length === 0) {
+        try {
+            await promptInitialVocabularies();
+        } catch (error) {
+            console.error('Initial Vocabularies setup failed:', error);
+            return;
         }
     }
 
@@ -563,25 +610,19 @@ async function initializeApp() {
     explanationElement = document.getElementById('explanation');
     restartButton = document.getElementById('restartButton');
     resetAppButton = document.getElementById('resetApp');
-    infoWindowButton = document.getElementById('infoWindowLater');
+    infoWindowButton = document.getElementById('infoWindow');
     userForm = document.getElementById('userForm');
     userAnswerElement = document.getElementById('userAnswer');
 
-    // Now, update the UI elements after DOM elements are set
+    // Update the UI elements with the translated text
     updateUIElements();
 
-    loadVocabList();
-
-    if (!Array.isArray(vocabList) || vocabList.length === 0) {
-        promptInitialVocabularies();
-    } else {
-        setupEventListeners();
-        loadNextQuestion();
-    }
+    setupEventListeners();
+    loadNextQuestion();
 }
 
 async function getApiKey() {
-    if (ownKey) {
+    if (ownKey === true) {
         const encryptedKey = localStorage.getItem('apiKey');
         if (!encryptedKey) {
             console.error('API Key is missing. Please enter your OpenAI API key.');
@@ -597,13 +638,11 @@ async function getApiKey() {
         const bearerToken = localStorage.getItem('bearerToken');
         const tokenExpiration = localStorage.getItem('tokenExpiration');
 
-        if (!bearerToken || !tokenExpiration) {
+        if (!bearerToken || !tokenExpiration || Date.now() > parseInt(tokenExpiration)) {
             console.error('Bearer token is missing or expired.');
-            return null;
-        }
-
-        if (Date.now() > parseInt(tokenExpiration)) {
-            console.error('Bearer token has expired.');
+            localStorage.removeItem('bearerToken');
+            localStorage.removeItem('tokenExpiration');
+            requestApiKey();
             return null;
         }
 
@@ -625,41 +664,16 @@ function loadVocabList() {
     }
 }
 
-function promptInitialVocabularies() {
-    const modalFirstVocab = document.getElementById('modalFirstVocab');
-    modalFirstVocab.style.display = 'block';
-
-    // Remove any previous event listeners to prevent duplicates
-    const saveFirstVocabButton = modalFirstVocab.querySelector('#saveFirstVocab');
-    saveFirstVocabButton.replaceWith(saveFirstVocabButton.cloneNode(true));
-    document.getElementById('saveFirstVocab').addEventListener('click', () => {
-        const vocab1 = document.getElementById('firstVocabInput1').value.trim();
-        const vocab2 = document.getElementById('firstVocabInput2').value.trim();
-        const vocab3 = document.getElementById('firstVocabInput3').value.trim();
-        if (vocab1 && vocab2 && vocab3) {
-            vocabList.push({ word: vocab1, score: 5 });
-            vocabList.push({ word: vocab2, score: 5 });
-            vocabList.push({ word: vocab3, score: 5 });
-            localStorage.setItem('vocabList', JSON.stringify(vocabList));
-            modalFirstVocab.style.display = 'none';
-            setupEventListeners();
-            loadNextQuestion();
-        } else {
-            alert(uiText.enterAllVocabPrompt);
-        }
-    });
-}
-
 function setupEventListeners() {
     restartButton.addEventListener('click', restartTraining);
     resetAppButton.addEventListener('click', resetApp);
-    infoWindowButton.addEventListener('click', infoWindowLater);
+    infoWindowButton.addEventListener('click', infoWindow);
     document.getElementById('addVocab').addEventListener('click', addVocab);
     document.getElementById('skipVocab').addEventListener('click', skipVocab);
     submitButton.addEventListener('click', submitAnswer);
     nextButton.addEventListener('click', loadNextQuestion);
 
-    userAnswerElement.addEventListener('keydown', function(event) {
+    userAnswerElement.addEventListener('keydown', function (event) {
         if (event.key === 'Enter' && !event.shiftKey && isAwaitingAnswer) {
             event.preventDefault();
             submitAnswer();
@@ -667,7 +681,7 @@ function setupEventListeners() {
         }
     });
 
-    userForm.addEventListener('submit', function(event) {
+    userForm.addEventListener('submit', function (event) {
         event.preventDefault();
     });
 }
@@ -732,7 +746,7 @@ function getHighScoreVocabs() {
     } else {
         // Proceed with high-score filtering
         const maxScore = Math.max(...vocabList.map(v => v.score));
-        
+
         // Filter vocabularies with scores within 3 points of the maxScore and at least 1
         return vocabList.filter(v => v.score >= (maxScore - 3) && v.score >= 1);
     }
@@ -934,8 +948,11 @@ function resetApp() {
 }
 
 async function callChatGPTAPI(systemPrompt, userPrompt) {
-    if (ownKey) {
+    console.log("ownKey", ownKey)
+    if (ownKey === true) {
         // Use the user's own API key
+        console.log("ownKey true")
+
         const apiKey = await getApiKey();
         if (!apiKey) {
             console.error('API Key is missing or invalid.');
@@ -976,6 +993,8 @@ async function callChatGPTAPI(systemPrompt, userPrompt) {
             return '';
         }
     } else {
+        console.log("Going through API route")
+
         // Use the backend's API key via the proxy
         const bearerToken = await getApiKey(); // Now holds the bearer token
 
@@ -1023,6 +1042,31 @@ async function callChatGPTAPI(systemPrompt, userPrompt) {
 // Initialize the key preference on page load
 document.addEventListener('DOMContentLoaded', () => {
     initializeKeyPreference();
+
+    // Event listener for the "Obtain Token" button
+    document.getElementById('requestBackendToken').addEventListener('click', async () => {
+        const requestTokenButton = document.getElementById('requestBackendToken');
+        requestTokenButton.disabled = true;
+        requestTokenButton.textContent = 'Obtaining Token...';
+
+        try {
+            const { token, expiresAt } = await requestBearerToken();
+            localStorage.setItem('bearerToken', token);
+            localStorage.setItem('tokenExpiration', expiresAt.toString());
+
+            // Hide the modal after obtaining the token
+            const modalKey = document.getElementById('modalKey');
+            modalKey.style.display = 'none';
+
+        } catch (error) {
+            console.error('Error obtaining bearer token:', error);
+            alert('Failed to obtain bearer token. Please try again later.');
+        } finally {
+            requestTokenButton.disabled = false;
+            requestTokenButton.textContent = 'Obtain Token';
+        }
+    });
+
 });
 
 // Function to convert markdown to HTML

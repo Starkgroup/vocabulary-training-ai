@@ -24,7 +24,7 @@
                 <button class="blue" id="restartButton" style="display: none;"
                     title="Reset the vocabulary training list">⏎</button>
                 <button class="gray" id="resetApp" title="Reset Application">⌫</button>
-                <button class="gray" id="infoWindowLater" title="About">?</button>
+                <button class="gray" id="infoWindow" title="About">?</button>
             </div>
         </header>
 
@@ -143,8 +143,8 @@
 
     <div id="modalAddVocab" class="modal">
         <div class="modal-content">
-            <h2>Add Vocabulary</h2>
-            <p>Please enter the new vocabulary or sentence (sentences always with punctuation). One per line...</p>
+            <h2 id="addVocabAlt">Add Vocabulary</h2>
+            <p>...</p>
             <textarea id="addVocabInput" placeholder="Enter vocabulary" rows="10"></textarea>
             <div class="buttonContainer">
                 <button id="saveAddVocab">Add</button>

@@ -1,11 +1,11 @@
 // pages/api/openai-proxy.js
 
 import jwt from 'jsonwebtoken';
-import { rateLimit } from 'next-rate-limit';
+import rateLimit from 'next-rate-limit';
 
 const limiter = rateLimit({
-    interval: 20 * 1000, // 1 minute
-    uniqueTokenPerInterval: 500, // Max 500 unique tokens per minute
+    interval: 1 * 1000,
+    uniqueTokenPerInterval: 500, 
 });
 
 export default async function handler(req, res) {
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
         jwt.verify(token, process.env.JWT_SECRET);
 
         // Apply rate limiting based on token
-        await limiter.check(res, 10, token); // 10 requests per minute
+        // await limiter.check(res, 10, token); // 10 requests per minute
     } catch (error) {
         return res.status(429).json({ message: 'Too Many Requests' });
     }

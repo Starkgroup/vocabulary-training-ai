@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "dev": "next dev -p 9194"
+  },
+  "dependencies": {
+    "@next/env": "^15.0.2",
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
+    "next": "^15.0.2",
+    "next-rate-limit": "^0.0.3"
+  }
+}

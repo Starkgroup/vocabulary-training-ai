@@ -2,7 +2,7 @@
 
 In  Backend, do:
 
-    npm install next @next/env dotenv
+    npm install next @next/env dotenv jsonwebtoken
 
 before starting the backend, in /backend create a .env.local with:
 

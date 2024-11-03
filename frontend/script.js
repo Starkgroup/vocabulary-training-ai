@@ -137,6 +137,161 @@ let uiText = {
     }
 };
 
+// Update the ownKey variable based on user selection
+let ownKey = true; // Default to true
+
+// Function to initialize the ownKey based on user preference
+function initializeKeyPreference() {
+    const storedOwnKey = localStorage.getItem('ownKey');
+    if (storedOwnKey !== null) {
+        ownKey = storedOwnKey === 'true';
+    } else {
+        ownKey = true; // Default value
+    }
+
+    // Update the UI toggle
+    const useOwnKeyCheckbox = document.getElementById('useOwnKey');
+    if (useOwnKeyCheckbox) {
+        useOwnKeyCheckbox.checked = ownKey;
+        useOwnKeyCheckbox.addEventListener('change', handleKeyToggle);
+    }
+}
+
+// Function to handle the toggle switch
+async function handleKeyToggle(event) {
+    ownKey = event.target.checked;
+    localStorage.setItem('ownKey', ownKey.toString());
+
+    if (!ownKey) {
+        // User opted to use the website's API key
+        const existingToken = localStorage.getItem('bearerToken');
+        const tokenExpiration = localStorage.getItem('tokenExpiration');
+
+        if (existingToken && tokenExpiration) {
+            const now = Date.now();
+            if (now < parseInt(tokenExpiration)) {
+                // Token is still valid
+                return;
+            }
+        }
+
+        // Request a new token
+        try {
+            const { token, expiresAt } = await requestBearerToken();
+            localStorage.setItem('bearerToken', token);
+            localStorage.setItem('tokenExpiration', expiresAt.toString());
+        } catch (error) {
+            console.error('Error obtaining bearer token:', error);
+            alert('Failed to obtain bearer token. Please try again later.');
+            // Revert the toggle
+            ownKey = true;
+            event.target.checked = true;
+            localStorage.setItem('ownKey', 'true');
+        }
+    } else {
+        // User opted to use their own API key
+        // Optionally, remove the bearer token from storage
+        localStorage.removeItem('bearerToken');
+        localStorage.removeItem('tokenExpiration');
+    }
+}
+
+function initializeKeyPreference() {
+    const storedOwnKey = localStorage.getItem('ownKey');
+    if (storedOwnKey !== null) {
+        ownKey = storedOwnKey === 'true';
+    } else {
+        ownKey = true; // Default value
+    }
+
+    // Update the UI toggle
+    const useOwnKeyCheckbox = document.getElementById('useOwnKey');
+    if (useOwnKeyCheckbox) {
+        useOwnKeyCheckbox.checked = ownKey;
+        useOwnKeyCheckbox.addEventListener('change', handleKeyToggle);
+    }
+
+    // Show/hide sections based on initial state
+    toggleApiKeySections(ownKey);
+}
+
+// Function to handle the toggle switch
+async function handleKeyToggle(event) {
+    ownKey = event.target.checked;
+    localStorage.setItem('ownKey', ownKey.toString());
+
+    toggleApiKeySections(ownKey);
+
+    if (!ownKey) {
+        // User opted to use the website's API key
+        const existingToken = localStorage.getItem('bearerToken');
+        const tokenExpiration = localStorage.getItem('tokenExpiration');
+
+        if (existingToken && tokenExpiration) {
+            const now = Date.now();
+            if (now < parseInt(tokenExpiration)) {
+                // Token is still valid
+                return;
+            }
+        }
+
+        // Request a new token
+        try {
+            const { token, expiresAt } = await requestBearerToken();
+            localStorage.setItem('bearerToken', token);
+            localStorage.setItem('tokenExpiration', expiresAt.toString());
+        } catch (error) {
+            console.error('Error obtaining bearer token:', error);
+            alert('Failed to obtain bearer token. Please try again later.');
+            // Revert the toggle
+            ownKey = true;
+            event.target.checked = true;
+            localStorage.setItem('ownKey', 'true');
+            toggleApiKeySections(true);
+        }
+    } else {
+        // User opted to use their own API key
+        // Optionally, remove the bearer token from storage
+        localStorage.removeItem('bearerToken');
+        localStorage.removeItem('tokenExpiration');
+    }
+}
+
+// Function to show/hide API key sections
+function toggleApiKeySections(useOwnKey) {
+    const ownKeySection = document.getElementById('ownKeySection');
+    const backendKeySection = document.getElementById('backendKeySection');
+
+    if (useOwnKey) {
+        ownKeySection.style.display = 'block';
+        backendKeySection.style.display = 'none';
+    } else {
+        ownKeySection.style.display = 'none';
+        backendKeySection.style.display = 'block';
+    }
+}
+
+// Function to request a bearer token from the backend
+async function requestBearerToken() {
+    const response = await fetch('https://vocab-api.storbeck.me/api/request-token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            expirationInSeconds: 86400, // 1 day
+        }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Token request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const expiresAt = Date.now() + 86400 * 1000; // 1 day in milliseconds
+    return { token: data.token, expiresAt };
+}
+
 // Function to translate UI text
 async function translateUIText(targetLanguage) {
     const apiKey = await getApiKey();
@@ -460,17 +615,34 @@ async function initializeApp() {
 }
 
 async function getApiKey() {
-    const encryptedKey = localStorage.getItem('apiKey');
-    if (!encryptedKey) {
-        console.error('API Key is missing. Please enter your OpenAI API key.');
-        return null;
+    if (ownKey) {
+        const encryptedKey = localStorage.getItem('apiKey');
+        if (!encryptedKey) {
+            console.error('API Key is missing. Please enter your OpenAI API key.');
+            return null;
+        }
+        const decryptedKey = await decryptData(encryptedKey, PASSPHRASE);
+        if (!decryptedKey) {
+            console.error('Failed to decrypt the API Key.');
+            return null;
+        }
+        return decryptedKey;
+    } else {
+        const bearerToken = localStorage.getItem('bearerToken');
+        const tokenExpiration = localStorage.getItem('tokenExpiration');
+
+        if (!bearerToken || !tokenExpiration) {
+            console.error('Bearer token is missing or expired.');
+            return null;
+        }
+
+        if (Date.now() > parseInt(tokenExpiration)) {
+            console.error('Bearer token has expired.');
+            return null;
+        }
+
+        return bearerToken;
     }
-    const decryptedKey = await decryptData(encryptedKey, PASSPHRASE);
-    if (!decryptedKey) {
-        console.error('Failed to decrypt the API Key.');
-        return null;
-    }
-    return decryptedKey;
 }
 
 function loadVocabList() {
@@ -797,46 +969,96 @@ function resetApp() {
 }
 
 async function callChatGPTAPI(systemPrompt, userPrompt) {
-    const apiKey = await getApiKey();
-    if (!apiKey) {
-        console.error('API Key is missing or invalid.');
-        return '';
-    }
-
-    try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt }
-                ]
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+    if (ownKey) {
+        // Use the user's own API key
+        const apiKey = await getApiKey();
+        if (!apiKey) {
+            console.error('API Key is missing or invalid.');
+            return '';
         }
 
-        const data = await response.json();
-        let content = data.choices[0].message.content;
+        try {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userPrompt }
+                    ]
+                })
+            });
 
-        content = content.replace(/^```(?:json)?\n?/, '');
-        content = content.replace(/\n?```$/, '');
-        content = content.replace(/\\"/g, "'");
-        content = content.replace(/\\`/g, "'");
+            if (!response.ok) {
+                throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+            }
 
-        return content;
-    } catch (error) {
-        console.error('Error calling OpenAI API:', error);
-        return '';
+            const data = await response.json();
+            let content = data.choices[0].message.content;
+
+            content = content.replace(/^```(?:json)?\n?/, '');
+            content = content.replace(/\n?```$/, '');
+            content = content.replace(/\\"/g, "'");
+            content = content.replace(/\\`/g, "'");
+
+            return content;
+        } catch (error) {
+            console.error('Error calling OpenAI API:', error);
+            return '';
+        }
+    } else {
+        // Use the backend's API key via the proxy
+        const bearerToken = await getApiKey(); // Now holds the bearer token
+
+        if (!bearerToken) {
+            console.error('Bearer token is missing or invalid.');
+            return '';
+        }
+
+        try {
+            const response = await fetch('https://vocab-api.storbeck.me/api/openai-proxy', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${bearerToken}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userPrompt }
+                    ]
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`OpenAI Proxy API error: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content;
+
+            content = content.replace(/^```(?:json)?\n?/, '');
+            content = content.replace(/\n?```$/, '');
+            content = content.replace(/\\"/g, "'");
+            content = content.replace(/\\`/g, "'");
+
+            return content;
+        } catch (error) {
+            console.error('Error calling OpenAI Proxy API:', error);
+            return '';
+        }
     }
 }
+
+// Initialize the key preference on page load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeKeyPreference();
+});
 
 function markdownToHTML(markdown) {
     if (!markdown) return '';
@@ -889,3 +1111,67 @@ function enableVocabClick() {
         });
     });
 }
+
+document.getElementById('saveApiKey').addEventListener('click', async () => {
+    const key = document.getElementById('apiKeyInput').value.trim();
+    if (key) {
+        // Show a loading indicator or disable the button to prevent multiple clicks
+        const saveButton = document.getElementById('saveApiKey');
+        saveButton.disabled = true;
+        saveButton.textContent = 'Validating...';
+
+        const isValid = await validateApiKey(key);
+        if (isValid) {
+            try {
+                const encryptedKey = await encryptData(key, PASSPHRASE);
+                localStorage.setItem('apiKey', encryptedKey);
+                // Hide the modal
+                document.getElementById('modalKey').style.display = 'none';
+                // Reset button text and state
+                saveButton.textContent = 'Save';
+                saveButton.disabled = false;
+                // Proceed to the next setup step
+                requestTrainingLanguage();
+            } catch (encryptionError) {
+                console.error('Encryption failed:', encryptionError);
+                alert('An error occurred while encrypting the API key. Please try again.');
+                // Reset button text and state
+                saveButton.textContent = 'Save';
+                saveButton.disabled = false;
+            }
+        } else {
+            alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation of what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
+            // Reset button text and state
+            saveButton.textContent = 'Save';
+            saveButton.disabled = false;
+        }
+    } else {
+        alert('Please enter an API key.');
+    }
+});
+
+document.getElementById('requestBackendToken').addEventListener('click', async () => {
+    const requestButton = document.getElementById('requestBackendToken');
+    requestButton.disabled = true;
+    requestButton.textContent = 'Requesting...';
+
+    try {
+        const { token, expiresAt } = await requestBearerToken();
+        localStorage.setItem('bearerToken', token);
+        localStorage.setItem('tokenExpiration', expiresAt.toString());
+        alert('Bearer token obtained successfully!');
+        // Hide the modal
+        document.getElementById('modalKey').style.display = 'none';
+        // Reset button text and state
+        requestButton.textContent = 'Obtain Token';
+        requestButton.disabled = false;
+        // Proceed to the next setup step
+        requestTrainingLanguage();
+    } catch (error) {
+        console.error('Error obtaining bearer token:', error);
+        alert('Failed to obtain bearer token. Please try again later.');
+        // Reset button text and state
+        requestButton.textContent = 'Obtain Token';
+        requestButton.disabled = false;
+    }
+});

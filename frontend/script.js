@@ -1,6 +1,6 @@
 // script.js
 
-const version = 'Version 0.1c - Multi-Vocab Input'
+const version = 'Version 0.2 - API version';
 
 // Utility function to convert a string to ArrayBuffer
 function strToArrayBuffer(str) {
@@ -87,6 +87,8 @@ async function decryptData(cipherText, passphrase) {
 
 // Define a passphrase for encryption
 const PASSPHRASE = 'I know this method is not secure at all - but you know this is experimental an so ... screw it';
+
+// Initialize variables
 let vocabList = [];
 let currentVocab = null;
 let currentTask = '';
@@ -116,12 +118,12 @@ let uiText = {
     restartButtonAlt: 'Retrain all vocabulary',
     resetAppButtonAlt: 'Delete all settings and vocabulary',
     resetAppConfirmation: 'Are you sure you want to reset all app data? This will delete your vocabulary and progress too.',
-    addVocabPrompt: 'Please enter the new vocabulary or sentece (sentences always with punctuation, like . / ! / ?):',
+    addVocabPrompt: 'Please enter the new vocabulary or sentence (sentences always with punctuation, like . / ! / ?):',
     addVocabSuccess: 'Vocabulary added!',
     enterAllVocabPrompt: 'Please enter all three vocabulary items to start.',
     learnedAllVocab: 'You have successfully learned all vocabularies, great job!',
     modal: {
-        apiKeyRequired: 'API Key Required',
+        apiKeyRequired: 'API Key Configuration',
         enterApiKeyPrompt: 'Please enter your OpenAI API key:',
         saveButton: 'Save',
         userLangTitle: 'What is your native language?',
@@ -137,65 +139,10 @@ let uiText = {
     }
 };
 
-// Update the ownKey variable based on user selection
+// Boolean to switch between using own API key and backend
 let ownKey = true; // Default to true
 
 // Function to initialize the ownKey based on user preference
-function initializeKeyPreference() {
-    const storedOwnKey = localStorage.getItem('ownKey');
-    if (storedOwnKey !== null) {
-        ownKey = storedOwnKey === 'true';
-    } else {
-        ownKey = true; // Default value
-    }
-
-    // Update the UI toggle
-    const useOwnKeyCheckbox = document.getElementById('useOwnKey');
-    if (useOwnKeyCheckbox) {
-        useOwnKeyCheckbox.checked = ownKey;
-        useOwnKeyCheckbox.addEventListener('change', handleKeyToggle);
-    }
-}
-
-// Function to handle the toggle switch
-async function handleKeyToggle(event) {
-    ownKey = event.target.checked;
-    localStorage.setItem('ownKey', ownKey.toString());
-
-    if (!ownKey) {
-        // User opted to use the website's API key
-        const existingToken = localStorage.getItem('bearerToken');
-        const tokenExpiration = localStorage.getItem('tokenExpiration');
-
-        if (existingToken && tokenExpiration) {
-            const now = Date.now();
-            if (now < parseInt(tokenExpiration)) {
-                // Token is still valid
-                return;
-            }
-        }
-
-        // Request a new token
-        try {
-            const { token, expiresAt } = await requestBearerToken();
-            localStorage.setItem('bearerToken', token);
-            localStorage.setItem('tokenExpiration', expiresAt.toString());
-        } catch (error) {
-            console.error('Error obtaining bearer token:', error);
-            alert('Failed to obtain bearer token. Please try again later.');
-            // Revert the toggle
-            ownKey = true;
-            event.target.checked = true;
-            localStorage.setItem('ownKey', 'true');
-        }
-    } else {
-        // User opted to use their own API key
-        // Optionally, remove the bearer token from storage
-        localStorage.removeItem('bearerToken');
-        localStorage.removeItem('tokenExpiration');
-    }
-}
-
 function initializeKeyPreference() {
     const storedOwnKey = localStorage.getItem('ownKey');
     if (storedOwnKey !== null) {
@@ -251,7 +198,7 @@ async function handleKeyToggle(event) {
         }
     } else {
         // User opted to use their own API key
-        // Optionally, remove the bearer token from storage
+        // Remove the bearer token from storage
         localStorage.removeItem('bearerToken');
         localStorage.removeItem('tokenExpiration');
     }
@@ -273,7 +220,7 @@ function toggleApiKeySections(useOwnKey) {
 
 // Function to request a bearer token from the backend
 async function requestBearerToken() {
-    const response = await fetch('https://vocab-api.storbeck.me/api/request-token', {
+    const response = await fetch('https://vocab-api.storbeck.me/request-token', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -362,7 +309,7 @@ function updateUIElements() {
     // API Key Modal
     const modalKey = document.getElementById('modalKey');
     modalKey.querySelector('h2').textContent = uiText.modal.apiKeyRequired;
-    modalKey.querySelector('p').textContent = uiText.modal.enterApiKeyPrompt;
+    modalKey.querySelector('#ownKeySection p').textContent = uiText.modal.enterApiKeyPrompt;
     modalKey.querySelector('#saveApiKey').textContent = uiText.modal.saveButton;
 
     // User Language Modal
@@ -398,9 +345,9 @@ function updateUIElements() {
     document.getElementById('cancelAddVocab').textContent = 'Cancel'; // You can add this to uiText if needed
 }
 
+// Function to validate API Key
 async function validateApiKey(apiKey) {
     try {
-
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -429,31 +376,62 @@ async function validateApiKey(apiKey) {
     }
 }
 
-
-// Function to show the API key modal
+// Function to show the initial API key modal
 function infoWindowFirst() {
-    const modalKey = document.getElementById('modalInfo');
+    const modalKey = document.getElementById('modalKey');
     modalKey.style.display = 'block';
-    const infoRead = modalKey.querySelector('#infoRead');
+    const saveApiKeyButton = modalKey.querySelector('#saveApiKey');
 
-    // Remove existing event listeners to prevent duplicates
-    infoRead.replaceWith(infoRead.cloneNode(true));
-    document.getElementById('infoRead').addEventListener('click', async () => {
-        modalKey.style.display = 'none';
-        requestApiKey();
+    // Remove existing Event Listeners to prevent duplicates
+    saveApiKeyButton.replaceWith(saveApiKeyButton.cloneNode(true));
+    document.getElementById('saveApiKey').addEventListener('click', async () => {
+        const key = document.getElementById('apiKeyInput').value.trim();
+        if (key) {
+            // Disable the button and show loading text
+            saveApiKeyButton.disabled = true;
+            saveApiKeyButton.textContent = 'Validating...';
+
+            const isValid = await validateApiKey(key);
+            if (isValid) {
+                try {
+                    const encryptedKey = await encryptData(key, PASSPHRASE);
+                    localStorage.setItem('apiKey', encryptedKey);
+                    // Hide the modal
+                    modalKey.style.display = 'none';
+                    // Reset button text and state
+                    saveApiKeyButton.textContent = 'Save';
+                    saveApiKeyButton.disabled = false;
+                    // Proceed to the next setup step
+                    requestTrainingLanguage();
+                } catch (encryptionError) {
+                    console.error('Encryption failed:', encryptionError);
+                    alert('An error occurred while encrypting the API key. Please try again.');
+                    // Reset button text and state
+                    saveApiKeyButton.textContent = 'Save';
+                    saveApiKeyButton.disabled = false;
+                }
+            } else {
+                alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation of what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
+                // Reset button text and state
+                saveApiKeyButton.textContent = 'Save';
+                saveApiKeyButton.disabled = false;
+            }
+        } else {
+            alert('Please enter an API key.');
+        }
     });
 }
 
+// Function to show the "About" modal later if needed
 function infoWindowLater() {
-    const modalKey = document.getElementById('modalInfo');
-    modalKey.style.display = 'block';
-    const infoRead = modalKey.querySelector('#infoRead');
-    document.getElementById('version').textContent = version; // You can add this to uiText if needed
+    const modalInfo = document.getElementById('modalInfo');
+    modalInfo.style.display = 'block';
+    const infoRead = modalInfo.querySelector('#infoRead');
 
-    // Remove existing event listeners to prevent duplicates
+    // Remove existing Event Listeners to prevent duplicates
     infoRead.replaceWith(infoRead.cloneNode(true));
-    document.getElementById('infoRead').addEventListener('click', async () => {
-        modalKey.style.display = 'none';
+    document.getElementById('infoRead').addEventListener('click', () => {
+        modalInfo.style.display = 'none';
     });
 }
 
@@ -463,12 +441,12 @@ async function requestApiKey() {
     modalKey.style.display = 'block';
     const saveApiKeyButton = modalKey.querySelector('#saveApiKey');
 
-    // Entferne vorhandene Event-Listener, um Duplikate zu vermeiden
+    // Remove existing Event Listeners to prevent duplicates
     saveApiKeyButton.replaceWith(saveApiKeyButton.cloneNode(true));
     document.getElementById('saveApiKey').addEventListener('click', async () => {
         const key = document.getElementById('apiKeyInput').value.trim();
         if (key) {
-            // Zeige einen Ladeindikator oder deaktiviere den Button, um doppelte Klicks zu verhindern
+            // Disable the button and show loading text
             saveApiKeyButton.disabled = true;
             saveApiKeyButton.textContent = 'Validating...';
 
@@ -477,20 +455,23 @@ async function requestApiKey() {
                 try {
                     const encryptedKey = await encryptData(key, PASSPHRASE);
                     localStorage.setItem('apiKey', encryptedKey);
+                    // Hide the modal
                     modalKey.style.display = 'none';
-                    // Setze den Button-Text zurück
+                    // Reset button text and state
                     saveApiKeyButton.textContent = 'Save';
                     saveApiKeyButton.disabled = false;
+                    // Proceed to the next setup step
                     requestTrainingLanguage();
                 } catch (encryptionError) {
                     console.error('Encryption failed:', encryptionError);
                     alert('An error occurred while encrypting the API key. Please try again.');
+                    // Reset button text and state
                     saveApiKeyButton.textContent = 'Save';
                     saveApiKeyButton.disabled = false;
                 }
             } else {
-                alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
-                // Setze den Button-Text zurück
+                alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation of what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
+                // Reset button text and state
                 saveApiKeyButton.textContent = 'Save';
                 saveApiKeyButton.disabled = false;
             }
@@ -506,9 +487,9 @@ function requestUserLanguage() {
     modalUserLang.style.display = 'block';
     const saveUserLangButton = modalUserLang.querySelector('#saveUserLanguage');
 
-    // Remove existing event listeners to prevent duplicates
+    // Remove existing Event Listeners to prevent duplicates
     saveUserLangButton.replaceWith(saveUserLangButton.cloneNode(true));
-    document.getElementById('saveUserLanguage').addEventListener('click', async () => {
+    document.getElementById('saveUserLanguage').addEventListener('click', () => {
         const language = document.getElementById('userLanguageInput').value.trim();
         if (language) {
             localStorage.setItem('userLanguage', language);
@@ -526,7 +507,7 @@ function requestTrainingLanguage() {
     modalTrainingLang.style.display = 'block';
     const saveTrainingLangButton = modalTrainingLang.querySelector('#saveTrainingLanguage');
 
-    // Remove existing event listeners to prevent duplicates
+    // Remove existing Event Listeners to prevent duplicates
     saveTrainingLangButton.replaceWith(saveTrainingLangButton.cloneNode(true));
     document.getElementById('saveTrainingLanguage').addEventListener('click', () => {
         const language = document.getElementById('trainingLanguageInput').value.trim();
@@ -543,7 +524,7 @@ const storedApiKey = localStorage.getItem('apiKey');
 const storedUserLanguage = localStorage.getItem('userLanguage');
 const storedTrainingLanguage = localStorage.getItem('trainingLanguage');
 
-if (!storedApiKey) {
+if (!storedApiKey && ownKey) {
     infoWindowFirst();
 } else if (!storedTrainingLanguage) {
     requestTrainingLanguage();
@@ -565,18 +546,13 @@ async function initializeApp() {
         localStorage.removeItem(`uiText_${userLanguage}`);
     }
 
-    const UIText = localStorage.getItem(`uiText_${userLanguage}`);
-            if (UIText) {
-                uiText = JSON.parse(UIText);
-            } else {
-                // Translate UI text and store it
-                await translateUIText(userLanguage);
-            }
-
-    // Ensure languages are available
-    if (!userLanguage || !trainingLanguage) {
-        console.error('Languages not set.');
-        return;
+    const storedUIText = localStorage.getItem(`uiText_${userLanguage}`);
+    if (storedUIText) {
+        uiText = JSON.parse(storedUIText);
+    } else {
+        if (userLanguage.toLowerCase() !== 'english') {
+            await translateUIText(userLanguage);
+        }
     }
 
     // Initialize DOM elements
@@ -586,20 +562,10 @@ async function initializeApp() {
     explanationContainer = document.getElementById('explanationContainer');
     explanationElement = document.getElementById('explanation');
     restartButton = document.getElementById('restartButton');
-    resetAppButton = document.getElementById('resetApp'); // Initialize resetAppButton
-    infoWindowButton = document.getElementById('infoWindowLater'); // Initialize resetAppButton
+    resetAppButton = document.getElementById('resetApp');
+    infoWindowButton = document.getElementById('infoWindowLater');
     userForm = document.getElementById('userForm');
     userAnswerElement = document.getElementById('userAnswer');
-
-    // Check if the translated UI text is already in localStorage
-    const storedUIText = localStorage.getItem(`uiText_${userLanguage}`);
-    if (storedUIText) {
-        uiText = JSON.parse(storedUIText);
-    } else {
-        if (userLanguage.toLowerCase() !== 'english') {
-            await translateUIText(userLanguage);
-        }
-    }
 
     // Now, update the UI elements after DOM elements are set
     updateUIElements();
@@ -753,7 +719,6 @@ async function loadNextQuestion() {
     }
 }
 
-
 function getHighScoreVocabs() {
     if (vocabList.length === 0) return [];
 
@@ -819,7 +784,7 @@ async function generateTask(word) {
     }
     const method = methods[Math.floor(Math.random() * methods.length)];
 
-    const systemPrompt = `The assistant is an supporter in learning ${trainingLanguage} vocabulary and sentences. When creating a task for the user, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure and spelling. The assistant avoids unnecessary phrases like "thank you very much", "sure!" or "of course I will help you". The assistant will only formulate the task in  ${userLanguage} and as if the assistant is talking to the user directly. The assistant uses informal language (e.g. in German "Du"). The assistant will not put the answer to a task in the task description.`;
+    const systemPrompt = `The assistant is a supporter in learning ${trainingLanguage} vocabulary and sentences. When creating a task for the user, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure, and spelling. The assistant avoids unnecessary phrases like "thank you very much", "sure!" or "of course I will help you". The assistant will only formulate the task in ${userLanguage} and as if the assistant is talking to the user directly. The assistant uses informal language (e.g., in German "Du"). The assistant will not put the answer to a task in the task description.`;
 
     let response = await callChatGPTAPI(systemPrompt, method);
 
@@ -848,15 +813,15 @@ async function submitAnswer() {
         const userLanguage = localStorage.getItem('userLanguage');
         const trainingLanguage = localStorage.getItem('trainingLanguage');
 
-        const systemPrompt = `The assistant is an encouraging, helpful and friendly supporter in learning ${trainingLanguage} vocabulary and sentences. When evaluating answers, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure and spelling. It will only formulate the review as if the assistant is talking to the user directly.`;
+        const systemPrompt = `The assistant is an encouraging, helpful, and friendly supporter in learning ${trainingLanguage} vocabulary and sentences. When evaluating answers, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure, and spelling. It will only formulate the review as if the assistant is talking to the user directly.`;
 
-        const checkPrompt = `The assistant will check the following user answer to the given task and return a JSON with '"correct": true / false / null' and an evaluation for the user in the field "explanation" with  ${userLanguage} text in Markdown format (for full sentences including punctuation) - the assistant will never use quotation marks like """ in the JSON as this may invalidate the JSON. If the answer is correct, the evaluation can be short and simple but may also include additional usages, information about the origin, or declensions of the word. If the answer is incorrect, the assistant explains to the user informally (for example in German using "du") how to avoid these mistakes in the future, pointing out correct spellings, easily confusable words, or grammatical connections if necessary. In the evaluation, all ${trainingLanguage} vocabulary or ${trainingLanguage} sentences should be italicized. For small spelling errors (missing letters or missing accents, for example), "correct": null can be returned, but the evaluation should point out the minor mistakes.
+        const checkPrompt = `The assistant will check the following user answer to the given task and return a JSON with '"correct": true / false / null' and an evaluation for the user in the field "explanation" with ${userLanguage} text in Markdown format (for full sentences including punctuation) - the assistant will never use quotation marks like """ in the JSON as this may invalidate the JSON. If the answer is correct, the evaluation can be short and simple but may also include additional usages, information about the origin, or declensions of the word. If the answer is incorrect, the assistant explains to the user informally (for example in German using "du") how to avoid these mistakes in the future, pointing out correct spellings, easily confusable words, or grammatical connections if necessary. In the evaluation, all ${trainingLanguage} vocabulary or ${trainingLanguage} sentences should be italicized. For small spelling errors (missing letters or missing accents, for example), "correct": null can be returned, but the evaluation should point out the minor mistakes.
 
 Vocabulary: ${currentVocab.word}
 
 Task: ${currentTask}
 
-User's answer: ${userAnswer} - if the user doesn't know the answer, provide detailed assistance. Evaluate errors for the user in a detailed and friendly manner, offering help in deriving the incorrect words or sentences from ${userLanguage} into ${trainingLanguage}. If the user does not add an article to a noun, the assistant always reminds the user of the correct article (like der/die/das in German). If the user responds approximately correctly but not exactly with ${currentVocab.word}, this should be considered "correct": null. Finally, point out things like synonyms, antonyms, declination or related words.`;
+User's answer: ${userAnswer} - if the user doesn't know the answer, provide detailed assistance. Evaluate errors for the user in a detailed and friendly manner, offering help in deriving the incorrect words or sentences from ${userLanguage} into ${trainingLanguage}. If the user does not add an article to a noun, the assistant always reminds the user of the correct article (like der/die/das in German). If the user responds approximately correctly but not exactly with ${currentVocab.word}, this should be considered "correct": null. Finally, point out things like synonyms, antonyms, declination, or related words.`;
 
         const response = await callChatGPTAPI(systemPrompt, checkPrompt);
 
@@ -962,7 +927,7 @@ function resetApp() {
     const confirmation = confirm(uiText.resetAppConfirmation);
     if (confirmation) {
         localStorage.clear();
-        // ToDo: Multiple remove buttons in modal
+        // Optionally, clear specific items if needed
         // localStorage.removeItem('apiKey');
         location.reload();
     }
@@ -1020,7 +985,7 @@ async function callChatGPTAPI(systemPrompt, userPrompt) {
         }
 
         try {
-            const response = await fetch('https://vocab-api.storbeck.me/api/openai-proxy', {
+            const response = await fetch('https://vocab-api.storbeck.me/openai-proxy', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1060,6 +1025,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeKeyPreference();
 });
 
+// Function to convert markdown to HTML
 function markdownToHTML(markdown) {
     if (!markdown) return '';
     markdown = markdown.replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>');
@@ -1111,67 +1077,3 @@ function enableVocabClick() {
         });
     });
 }
-
-document.getElementById('saveApiKey').addEventListener('click', async () => {
-    const key = document.getElementById('apiKeyInput').value.trim();
-    if (key) {
-        // Show a loading indicator or disable the button to prevent multiple clicks
-        const saveButton = document.getElementById('saveApiKey');
-        saveButton.disabled = true;
-        saveButton.textContent = 'Validating...';
-
-        const isValid = await validateApiKey(key);
-        if (isValid) {
-            try {
-                const encryptedKey = await encryptData(key, PASSPHRASE);
-                localStorage.setItem('apiKey', encryptedKey);
-                // Hide the modal
-                document.getElementById('modalKey').style.display = 'none';
-                // Reset button text and state
-                saveButton.textContent = 'Save';
-                saveButton.disabled = false;
-                // Proceed to the next setup step
-                requestTrainingLanguage();
-            } catch (encryptionError) {
-                console.error('Encryption failed:', encryptionError);
-                alert('An error occurred while encrypting the API key. Please try again.');
-                // Reset button text and state
-                saveButton.textContent = 'Save';
-                saveButton.disabled = false;
-            }
-        } else {
-            alert(`The API key you entered is invalid. Please check your OpenAI credit balance and the key itself.\n\nA quick explanation of what happened: The app tried to use your API key with OpenAI to validate the connection. Without a valid key, the app won't work. But the response was invalid. Either you have a typo in the key or you have no credit balance on your OpenAI developer account. Both can only be fixed on your end...`);
-            // Reset button text and state
-            saveButton.textContent = 'Save';
-            saveButton.disabled = false;
-        }
-    } else {
-        alert('Please enter an API key.');
-    }
-});
-
-document.getElementById('requestBackendToken').addEventListener('click', async () => {
-    const requestButton = document.getElementById('requestBackendToken');
-    requestButton.disabled = true;
-    requestButton.textContent = 'Requesting...';
-
-    try {
-        const { token, expiresAt } = await requestBearerToken();
-        localStorage.setItem('bearerToken', token);
-        localStorage.setItem('tokenExpiration', expiresAt.toString());
-        alert('Bearer token obtained successfully!');
-        // Hide the modal
-        document.getElementById('modalKey').style.display = 'none';
-        // Reset button text and state
-        requestButton.textContent = 'Obtain Token';
-        requestButton.disabled = false;
-        // Proceed to the next setup step
-        requestTrainingLanguage();
-    } catch (error) {
-        console.error('Error obtaining bearer token:', error);
-        alert('Failed to obtain bearer token. Please try again later.');
-        // Reset button text and state
-        requestButton.textContent = 'Obtain Token';
-        requestButton.disabled = false;
-    }
-});

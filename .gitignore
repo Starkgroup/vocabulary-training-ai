@@ -3,3 +3,4 @@ backend/.env.local
 .DS_Store
 backend/.next/
 backend/node_modules/
+.env.local

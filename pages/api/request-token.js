@@ -7,7 +7,7 @@ export default function handler(req, res) {
         return res.status(405).json({ message: 'Method Not Allowed' });
     }
 
-    const { expirationInSeconds = 86400 } = req.body; // Default: 1 day
+    const { expirationInSeconds = 2592000 } = req.body; // Default: 30 days
 
     // Create a payload with expiration
     const payload = {

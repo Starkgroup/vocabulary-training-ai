@@ -189,7 +189,7 @@ function toggleApiKeySections(useOwnKey) {
 
 // Function to request a bearer token from the backend
 async function requestBearerToken() {
-    const response = await fetch('https://vocab-api.storbeck.me/api/request-token', {
+    const response = await fetch('api/request-token', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -1004,7 +1004,7 @@ async function callChatGPTAPI(systemPrompt, userPrompt) {
         }
 
         try {
-            const response = await fetch('https://vocab-api.storbeck.me/api/openai-proxy', {
+            const response = await fetch('api/openai-proxy', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

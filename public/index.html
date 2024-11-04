@@ -50,10 +50,10 @@
 
     <div id="modalInfo" class="modal">
         <div class="modal-content">
-            <h2>Welcome</h2>
+            <h2>Word Nerds Unite!</h2>
             <p>This AI powered tool can help you learn vocabulary, phrases and grammar alongside your daily language
                 learning in tools like Duolingo or classic language courses. It doesn't matter what language you speak
-                or want to learn 🇪🇸🇫🇷🇩🇪🇬🇧🇵🇹🇫🇮🇩🇰🇳🇱🇺🇦... Even Klingon works (to some extent... I guess)!
+                or want to learn 🇪🇸🇫🇷🇩🇪🇬🇧🇵🇹🇫🇮🇩🇰🇳🇱🇺🇦🇪🇪🇨🇿🇨🇮🇬🇪🇮🇳🇿🇦 ... Even Klingon works (to some extent... I guess)!
                 It is still in development, so any <a href="mailto:vocabulary-alpha-feedback@storbeck.me">feedback is
                     welcome</a>.</p>
             <p class="comment">AI processing is not free. But I don't want your money or data. This is a hobby project I
@@ -73,7 +73,7 @@
             <!-- Toggle Switch -->
             <div class="api-key-toggle">
                 <label class="switch">
-                    <input type="checkbox" id="useOwnKey" checked>
+                    <input type="checkbox" id="useOwnKey">
                     <span class="slider round"></span>
                 </label>
                 <span>Use My Own OpenAI API Key</span>
@@ -82,6 +82,7 @@
             <!-- Section for Using Own API Key -->
             <div id="ownKeySection" class="api-key-section">
                 <p>Please enter your OpenAI API key:</p>
+                <input type="password" id="apiKeyInput" placeholder="API Key">
                 <p class="comment">
                     This is needed to create the AI connection. You can create one in
                     <a href="https://platform.openai.com/api-keys" target="_blank">your OpenAI Playground</a>.
@@ -94,7 +95,6 @@
                         GitHub</a>).
                     It will only be stored encrypted in your browser.
                 </p>
-                <input type="password" id="apiKeyInput" placeholder="API Key">
                 <button id="saveApiKey">Save</button>
             </div>
 
@@ -104,6 +104,13 @@
                     The family & friends option - Martin provides the OpenAI key and bears the API usage cost. Invite him for a Currywurst to say thanks. Ask him for the password...
                 </p>
                 <input type="password" id="apiPasswordInput" placeholder="Password provided by Martin">
+                <p class="comment">
+                    This is needed to create the AI connection. The tool uses the OpenAI chat model gpt-4o-mini. Based on your usage of this tool,
+                    OpenAI will charge money for the tasks and responses. A normal everyday usage is within fractions of cents. With this option
+                    Martin will give you access to my key, which means Martin will pay for every time you use it. It's a fraction of cents, so don't worry,
+                    but a thank you would be nice. 
+                </p>
+
                 <button id="requestBackendToken">Obtain Token</button>
             </div>
         </div>

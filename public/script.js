@@ -1,6 +1,6 @@
 // script.js
 
-const version = 'Version 0.2 - API version';
+const version = 'Version 0.2a - Enhanced prompts';
 
 // Utility function to convert a string to ArrayBuffer
 function strToArrayBuffer(str) {
@@ -144,7 +144,7 @@ function initializeKeyPreference() {
     if (storedOwnKey !== null) {
         ownKey = storedOwnKey === 'true';
     } else {
-        ownKey = true; // Default value
+        ownKey = false; // Default value
     }
 
     // Update the UI toggle
@@ -212,15 +212,20 @@ async function requestBearerToken(password) {
 async function translateUIText(targetLanguage) {
     const textToTranslate = JSON.stringify(uiText);
 
-    const systemPrompt = 'You are a helpful assistant that translates JSON objects containing UI text into the target language while preserving the JSON structure. Use informal language (for example in German: "Du")';
-    const userPrompt = `Translate the following JSON object into ${targetLanguage}. Preserve the JSON structure and keys. Do not translate any keys, only the values. Only return the JSON, no comments or remarks.
+    const systemMsg = 'You are a helpful assistant that translates JSON objects containing UI text into the target language while preserving the JSON structure. Use informal language (for example in German: "Du")';
+    const userMsg = `Translate the following JSON object into ${targetLanguage}. Preserve the JSON structure and keys. Do not translate any keys, only the values. Only return the JSON, no comments or remarks.
 
 JSON to translate:
 ${textToTranslate}`;
 
+    const messageTranslate = [
+        { role: 'system', content: systemMsg },
+        { role: 'assistant', content: userMsg }
+    ]
+
     try {
         // Use the existing callChatGPTAPI function to get the translated text
-        const responseContent = await callChatGPTAPI(systemPrompt, userPrompt);
+        const responseContent = await callChatGPTAPI(messageTranslate);
 
         if (!responseContent) {
             throw new Error('Received empty response from ChatGPT API.');
@@ -330,15 +335,19 @@ async function validateApiKey(apiKey) {
 
 // Function to show the initial API key modal
 function infoWindow() {
-    const modalInfo = document.getElementById('modalInfo');
-    modalInfo.style.display = 'block';
-    const modalInfoButton = modalInfo.querySelector('#infoRead');
+    return new Promise((resolve, reject) => {
+        const modalInfo = document.getElementById('modalInfo');
+        modalInfo.style.display = 'block';
+        const modalInfoButton = modalInfo.querySelector('#infoRead');
 
-    // Remove existing Event Listeners to prevent duplicates
-    modalInfoButton.replaceWith(modalInfoButton.cloneNode(true));
-    document.getElementById('infoRead').addEventListener('click', async () => {
-        modalInfo.style.display = 'none';
+        // Remove existing Event Listeners to prevent duplicates
+        modalInfoButton.replaceWith(modalInfoButton.cloneNode(true));
+        document.getElementById('infoRead').addEventListener('click', async () => {
+            modalInfo.style.display = 'none';
+            resolve();
+        });
     });
+
 }
 
 // Function to show the API key modal
@@ -353,6 +362,7 @@ function requestApiKey() {
         const newSaveApiKeyButton = modalKey.querySelector('#saveApiKey');
 
         newSaveApiKeyButton.addEventListener('click', async () => {
+            console.log('save')
             const key = document.getElementById('apiKeyInput').value.trim();
             if (key) {
                 // Disable the button and show loading text
@@ -506,8 +516,6 @@ function obtainBearerToken() {
     });
 }
 
-
-
 let ownKey = null;
 
 const userLanguage = localStorage.getItem('userLanguage');
@@ -526,9 +534,10 @@ async function initializeApp() {
             localStorage.removeItem(`uiText_${userLanguage}`);
         } catch {
 
-        } 
+        }
     }
     document.getElementById('version').innerText = version;
+
 
     ownKey = localStorage.getItem('ownKey') === 'true'; // Ensure it's a boolean
     if (ownKey === null) {
@@ -538,9 +547,11 @@ async function initializeApp() {
     }
 
     if (ownKey) {
+
         const storedApiKey = localStorage.getItem('apiKey');
         if (!storedApiKey) {
             try {
+                await infoWindow()
                 await requestApiKey();
             } catch (error) {
                 console.error('API Key setup failed:', error);
@@ -553,6 +564,7 @@ async function initializeApp() {
         if (!storedBearerToken || !tokenExpiration || Date.now() > parseInt(tokenExpiration)) {
             // Token is missing or expired, prompt user to obtain a new token
             try {
+                await infoWindow()
                 await obtainBearerToken();
             } catch (error) {
                 console.error('Bearer Token setup failed:', error);
@@ -574,6 +586,21 @@ async function initializeApp() {
     const userLanguage = localStorage.getItem('userLanguage');
     if (!userLanguage) {
         try {
+            const messageTask = [
+                { role: 'system', content: `You create training vocabulary as a JSON object with the following structure: {"words": ["word1", "word2", "word3"]}` },
+                { role: 'user', content: `Provide three random easy words in the language ${trainingLanguage}` }
+            ];
+
+            let response = await callChatGPTAPI(messageTask);
+
+            const { words } = JSON.parse(response);
+
+            if (words && words.length === 3) {
+                vocabList.push({ word: words[0], score: 5 });
+                vocabList.push({ word: words[1], score: 5 });
+                vocabList.push({ word: words[2], score: 5 });
+                localStorage.setItem('vocabList', JSON.stringify(vocabList));
+            }
             await requestUserLanguage();
         } catch (error) {
             console.error('User Language setup failed:', error);
@@ -586,6 +613,7 @@ async function initializeApp() {
         uiText = JSON.parse(storedUIText);
     } else {
         if (userLanguage && userLanguage.toLowerCase() !== 'english') {
+            console.log("translating UI")
             await translateUIText(userLanguage);
         } else {
             console.log('English - no translation necessary');
@@ -701,8 +729,9 @@ async function loadNextQuestion() {
     // Optionally, you can show a loading indicator here
     taskElement.textContent = uiText.loadingTask;
 
-    const highScoreVocabs = getHighScoreVocabs();
-    if (highScoreVocabs.length === 0) {
+    currentVocab = selectWeightedRandomVocab();
+
+    if (currentVocab === null) {
         taskElement.textContent = uiText.learnedAllVocab;
         submitButton.style.display = 'none';
         userAnswerElement.style.display = 'none';
@@ -712,7 +741,6 @@ async function loadNextQuestion() {
         return;
     }
 
-    currentVocab = selectRandomVocab();
     if (!currentVocab) {
         console.error('No vocabulary available to select.');
         // Optionally, show the submit button again
@@ -734,32 +762,45 @@ async function loadNextQuestion() {
     }
 }
 
-function getHighScoreVocabs() {
-    if (vocabList.length === 0) return [];
+/**
+ * Selects a random vocabulary item.
+ * Prefers higher scores but includes all vocabs, even those with a score of 0.
+ * If all scores are 0, selects uniformly at random.
+ * @returns {Vocab|null} The selected vocabulary item or null if the list is empty.
+ */
+function selectWeightedRandomVocab() {
+    if (vocabList.length === 0) return null;
 
-    // Generate a random integer between 0 and 2 (inclusive)
-    const randomChance = Math.floor(Math.random() * 3); // Possible values: 0, 1, 2
+    // Check if all vocab scores are 0
+    const allScoresZero = vocabList.every(vocab => vocab.score === 0);
 
-    if (randomChance === 0) { // 1 in 3 chance
-        // Select a random vocab item
-        const randomIndex = Math.floor(Math.random() * vocabList.length);
-        return [vocabList[randomIndex]]; // Return as an array to maintain consistent return type
-    } else {
-        // Proceed with high-score filtering
-        const maxScore = Math.max(...vocabList.map(v => v.score));
-
-        // Filter vocabularies with scores within 3 points of the maxScore and at least 1
-        return vocabList.filter(v => v.score >= (maxScore - 3) && v.score >= 1);
-    }
-}
-
-function selectRandomVocab() {
-    const highScoreVocabs = getHighScoreVocabs();
-    if (highScoreVocabs.length === 0) {
+    if (allScoresZero) {
+        // Perform uniform random selection
         return null;
+    } else {
+        // Perform weighted random selection
+        // Define a base weight to ensure even items with score 0 have a chance
+        const baseWeight = 1;
+
+        // Calculate total weight
+        const totalWeight = vocabList.reduce((sum, vocab) => sum + (vocab.score + baseWeight), 0);
+
+        // Generate a random number between 0 and totalWeight
+        let random = Math.random() * totalWeight;
+
+        // Select the vocab based on the weighted random number
+        for (const vocab of vocabList) {
+            random -= (vocab.score + baseWeight);
+            if (random < 0) {
+                return vocab;
+            }
+        }
+
+        // Fallback in case of rounding errors
+        return vocabList[vocabList.length - 1];
     }
-    return highScoreVocabs[Math.floor(Math.random() * highScoreVocabs.length)];
 }
+
 
 function restartTraining() {
     if (Array.isArray(vocabList)) {
@@ -784,24 +825,69 @@ async function generateTask(word) {
 
     const isSentence = /^[A-ZÄÖÜ].*[.!?]$/.test(word);
     let methods = [];
+    
     if (isSentence) {
         methods = [
-            `The assistant will leave out a difficult vocabulary word (single or compound words) in this ${trainingLanguage} sentence: ${word} - The assistant will replace the word with '...........' and ask the user in ${userLanguage} to fill in the blank, providing as a hint the ${userLanguage} translation of the missing word. The assistant will not hint at the answer in ${trainingLanguage}!`,
-            `The assistant will ask the user in ${userLanguage} for the approximate translation of the sentence from ${trainingLanguage} into ${userLanguage}: '${word}'. The assistant will not hint at the full sentence '${word}', because that is what the user wants to train!`
+            // Original Methods
+            `Leave out a difficult vocabulary word (single or compound words) in this ${trainingLanguage} sentence: "${word}". Replace the word with '...........' and ask me in ${userLanguage} to fill in the blank, providing as a hint the ${userLanguage} translation of the missing word. Do not hint at the answer in ${trainingLanguage}!`,
+            
+            `Ask me in ${userLanguage} for the approximate translation of the sentence ${word} from ${trainingLanguage} into ${userLanguage}. Do not hint at the full ${userLanguage} sentence for "${word}", because that is what I want to train!`,
+            
+            // Additional Suggested Methods
+            `Present the ${trainingLanguage} sentence "${word}" in ${userLanguage} with one key phrase removed and replaced by '..........'. Prompt me to supply the missing phrase in ${trainingLanguage}, using context clues provided in ${userLanguage}.`,
+            
+            `Convert the ${trainingLanguage} sentence "${word}" into a multiple-choice question in ${userLanguage}, where the I must select the correct translation of a specific word or phrase from ${trainingLanguage}.`,
+            
+            `Break down the ${trainingLanguage} sentence "${word}" into its grammatical components and ask me in ${userLanguage} to reconnect the sentence, to enhance my understanding of sentence structure.`,
+            
+            `Provide a synonym or antonym in ${userLanguage} for a selected word in the ${trainingLanguage} sentence "${word}" and ask me to replace it with the appropriate term, maintaining the sentence's original meaning.`,
+            
+            `Present the ${trainingLanguage} sentence "${word}" in ${userLanguage} with shuffled word order and ask me to rearrange the words to form the correct sentence in ${trainingLanguage}.`,
+            
+            `Extract an idiomatic expression from the ${trainingLanguage} sentence "${word}" and ask me to explain its meaning in ${userLanguage}, promoting deeper linguistic comprehension.`,
+            
         ];
     } else {
         methods = [
-            `The user wants to practice the ${trainingLanguage} vocabulary '${word}'. The assistant will create a ${userLanguage} sentence with the translation and formulate a request in ${userLanguage} for the user to translate this sentence into ${trainingLanguage}. The assistant will not hint at the vocabulary '${word}', because that is what the user wants to train!`,
-            `The assistant will formulate in ${userLanguage} a request for the user to translate '${word}' from ${trainingLanguage} into ${userLanguage}. The request must contain the word '${word}' (if the word is a noun, use it with the correct ${trainingLanguage} article, for example in German "der/die/das")!`,
-            `The assistant will formulate in ${userLanguage} a request for the user to translate the approximate meaning of the ${trainingLanguage} vocabulary '${word}' from ${userLanguage} into ${trainingLanguage}. The assistant will not hint at the answer '${word}', because that is what the user wants to train. The request must contain the ${userLanguage} translation as a word!`,
-            `The assistant will formulate in ${userLanguage} a request for the user to transform the ${trainingLanguage} vocabulary '${word}', (if it's a verb, decline it correctly for example, for nouns create the plural or something similar). The request will be simple and focused on one task, not for example five full sentences, but a full declination is okay. The assistant will not hint at the answer to the task and not give the translation, because that is what the user wants to train.`,
+            // Original Methods
+            `I want to practice the ${trainingLanguage} vocabulary '${word}'. Create a ${userLanguage} sentence with the translation and formulate a request in ${userLanguage} for me to translate this sentence into ${trainingLanguage}. Do not hint at the vocabulary '${word}', because that is what I want to train!`,
+            
+            `Formulate in ${userLanguage} a request for me to translate '${word}' from ${trainingLanguage} into ${userLanguage}. The request must contain the word '${word}' (if the word is a noun, use it with the correct ${trainingLanguage} article, for example in German "der/die/das")!`,
+            
+            `Formulate in ${userLanguage} a request for the user to translate the approximate meaning of the ${trainingLanguage} vocabulary '${word}' from ${userLanguage} into ${trainingLanguage}.Do not hint at the answer '${word}', because that is what I want to train. The request must contain the ${userLanguage} translation as a word!`,
+            
+            `Formulate in ${userLanguage} a request for the user to transform the ${trainingLanguage} vocabulary '${word}' (e.g., conjugate verbs, pluralize nouns, modify numbers). The request will be simple and focused on one task, not multiple tasks. Do not hint at the answer or provide the translation, as that is my training focus.`,
+            
+            // Additional Suggested Methods
+            `Provide a ${userLanguage} definition of the ${trainingLanguage} word '${word}' and ask me to supply the correct ${trainingLanguage} term, reinforcing vocabulary retention.`,
+            
+            `Use the ${trainingLanguage} word '${word}' in a context-rich ${userLanguage} sentence and ask me to identify and translate the word back into ${trainingLanguage}.`,
+            
+            `Present the ${trainingLanguage} word '${word}' alongside its ${userLanguage} synonym and ask me to use '${word}' correctly in a new sentence in ${trainingLanguage}.`,
+            
+            `Generate a fill-in-the-blank exercise (with the blanks as '...........') in ${trainingLanguage} where I must insert the appropriate form of '${word}' in ${trainingLanguage} based on grammatical cues in an unordered list.`,
+            
+            `Create a matching exercise where I must pair the ${trainingLanguage} word '${word}' with its correct ${userLanguage} translation among a list of options.`,
+            
+            `Formulate a true or false statement in ${userLanguage} involving the ${trainingLanguage} word '${word}' and ask me to verify its accuracy, providing explanations as needed.`,
+            
+            `Design a short dialogue in ${userLanguage} incorporating the ${trainingLanguage} word '${word}' and ask me to translate the dialogue back into ${trainingLanguage}.`,
+            
+            `Present a scenario in ${userLanguage} that naturally uses the ${trainingLanguage} word '${word}' and ask me to respond appropriately in ${trainingLanguage}, enhancing practical usage skills.`,
+            
+            `Create a story prompt in ${userLanguage} that includes the ${trainingLanguage} word '${word}' and ask me to write a continuation or conclusion in ${trainingLanguage}, fostering creative application.`,
         ];
     }
-    const method = methods[Math.floor(Math.random() * methods.length)];
+        const method = methods[Math.floor(Math.random() * methods.length)];
 
-    const systemPrompt = `The assistant is a supporter in learning ${trainingLanguage} vocabulary and sentences. When creating a task for the user, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure, and spelling. The assistant avoids unnecessary phrases like "thank you very much", "sure!" or "of course I will help you". The assistant will only formulate the task in ${userLanguage} and as if the assistant is talking to the user directly. The assistant uses informal language (e.g., in German "Du"). The assistant will not put the answer to a task in the task description.`;
+    const system = `The assistant is a supporter in learning ${trainingLanguage} vocabulary and sentences. When creating a task for the user, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure, and spelling. The assistant avoids unnecessary phrases like "thank you very much", "sure!" or "of course I will help you". The assistant will only formulate the task in ${userLanguage} and as if the assistant is talking to the user directly. The assistant uses informal language (e.g., in German "Du"). The assistant will not put the answer to a task in the task description. The assistant will never have the word in both languages in one task.`;
 
-    let response = await callChatGPTAPI(systemPrompt, method);
+    const messageTask = [
+        { role: 'system', content: system },
+        { role: 'assistant', content: method }
+    ]
+
+    let response = await callChatGPTAPI(messageTask);
 
     response = markdownToHTML(response);
 
@@ -828,17 +914,19 @@ async function submitAnswer() {
         const userLanguage = localStorage.getItem('userLanguage');
         const trainingLanguage = localStorage.getItem('trainingLanguage');
 
-        const systemPrompt = `The assistant is an encouraging, helpful, and friendly supporter in learning ${trainingLanguage} vocabulary and sentences. When evaluating answers, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure, and spelling. It will only formulate the review as if the assistant is talking to the user directly.`;
+        const system = `The assistant is an encouraging, helpful, and friendly supporter in learning ${trainingLanguage} vocabulary and sentences. When evaluating answers, the assistant always pays attention to the correct usage of the ${trainingLanguage} language, like grammar, sentence structure, and spelling. The assistant will return a JSON with '"correct": true / false / null' and an evaluation for the user in the field "explanation" with ${userLanguage} text in Markdown format (for full sentences include the punctuation in the markdown highlighting) - the assistant will never use quotation marks like """ in the JSON as this may invalidate the JSON. If the answer is correct, the evaluation can be short and simple but may also include additional usages, information about the origin, or declensions of the word. If the answer is incorrect, the assistant explains to the user informally (for example in German using "du") how to avoid these mistakes in the future, pointing out correct spellings, easily confusable words, or grammatical connections if necessary. In the evaluation, all ${trainingLanguage} vocabulary or ${trainingLanguage} sentences should be italicized. For small spelling errors, "correct": null can be returned, but the evaluation should point out the minor mistakes. if the user doesn't know the answer, the assistant provides detailed assistance. The assistant Evaluates errors for the user in a detailed and friendly manner. If the user does not add an article to a noun, the assistant always reminds the user of the correct article (like der/die/das in German). If the user responds approximately correct, this should be considered "correct": null. Finally, point out things like synonyms, antonyms, declination, or related words. If the task was not ideal, the assistant will give the user the benefit of the doubt and rate it as correct. If there are multiple meanings to a word, each possible answer is correct.`;
+        const vocab = `Create a task for me based on the following vocabulary: ${currentVocab.word}`;
+        const originalTask = `Sure, here is a task for you: ${currentTask}`;
+        const answer = `This is my answer: ${userAnswer} - please check if it is correct. `;
 
-        const checkPrompt = `The assistant will check the following user answer to the given task and return a JSON with '"correct": true / false / null' and an evaluation for the user in the field "explanation" with ${userLanguage} text in Markdown format (for full sentences including punctuation) - the assistant will never use quotation marks like """ in the JSON as this may invalidate the JSON. If the answer is correct, the evaluation can be short and simple but may also include additional usages, information about the origin, or declensions of the word. If the answer is incorrect, the assistant explains to the user informally (for example in German using "du") how to avoid these mistakes in the future, pointing out correct spellings, easily confusable words, or grammatical connections if necessary. In the evaluation, all ${trainingLanguage} vocabulary or ${trainingLanguage} sentences should be italicized. For small spelling errors (missing letters or missing accents, for example), "correct": null can be returned, but the evaluation should point out the minor mistakes.
+        const messageCheck = [
+            { role: 'system', content: system },
+            { role: 'user', content: vocab },
+            { role: 'assistant', content: originalTask },
+            { role: 'user', content: answer }
+        ]
 
-Vocabulary: ${currentVocab.word}
-
-Task: ${currentTask}
-
-User's answer: ${userAnswer} - if the user doesn't know the answer, provide detailed assistance. Evaluate errors for the user in a detailed and friendly manner, offering help in deriving the incorrect words or sentences from ${userLanguage} into ${trainingLanguage}. If the user does not add an article to a noun, the assistant always reminds the user of the correct article (like der/die/das in German). If the user responds approximately correctly but not exactly with ${currentVocab.word}, this should be considered "correct": null. Finally, point out things like synonyms, antonyms, declination, or related words.`;
-
-        const response = await callChatGPTAPI(systemPrompt, checkPrompt);
+        const response = await callChatGPTAPI(messageCheck);
 
         try {
             const result = JSON.parse(response);
@@ -948,7 +1036,7 @@ function resetApp() {
     }
 }
 
-async function callChatGPTAPI(systemPrompt, userPrompt) {
+async function callChatGPTAPI(messages) {
     console.log("ownKey", ownKey)
     if (ownKey === true) {
         // Use the user's own API key
@@ -969,10 +1057,7 @@ async function callChatGPTAPI(systemPrompt, userPrompt) {
                 },
                 body: JSON.stringify({
                     model: 'gpt-4o-mini',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt }
-                    ]
+                    messages
                 })
             });
 
@@ -1013,10 +1098,7 @@ async function callChatGPTAPI(systemPrompt, userPrompt) {
                 },
                 body: JSON.stringify({
                     model: 'gpt-4o-mini',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt }
-                    ]
+                    messages
                 })
             });
 

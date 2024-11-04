@@ -10,6 +10,8 @@ export default function handler(req, res) {
     const expirationInSeconds = 2592000;
     const password = req.body.password;
 
+    console.log('password',password)
+
     if (password === undefined) {
         return
     } else if (password !== process.env.PASSWORD) {

@@ -188,14 +188,14 @@ function toggleApiKeySections(useOwnKey) {
 }
 
 // Function to request a bearer token from the backend
-async function requestBearerToken() {
+async function requestBearerToken(password) {
     const response = await fetch('https://vocab.storbeck.me/api/request-token', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            expirationInSeconds: 86400, // 1 day
+            password: password
         }),
     });
 
@@ -486,7 +486,8 @@ function obtainBearerToken() {
             newRequestBackendTokenButton.textContent = 'Obtaining Token...';
 
             try {
-                const { token, expiresAt } = await requestBearerToken();
+                const apiPassword = document.getElementById('apiPasswordInput').value.trim(); // Read the API password
+                const { token, expiresAt } = await requestBearerToken(apiPassword); // Send the password with the request
                 localStorage.setItem('bearerToken', token);
                 localStorage.setItem('tokenExpiration', expiresAt.toString());
 
